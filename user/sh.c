@@ -156,12 +156,18 @@ main(void)
   }
 
   // Read and run input commands.
-  while(getcmd(buf, sizeof(buf)) >= 0){
+  while(1){
     // Check if there is any exited background job, then print it.
-    // int status;
-    int pid; 
-    // while ((pid = wait_noblock(&status)) > 0)
-    //   fprintf(2, "[bg %d] exited with status %d\n", pid, status);
+    int status, pid;
+    while ((pid = wait_noblock(&status)) > 0)
+      fprintf(2, "[bg %d] exited with status %d\n", pid, status);
+
+    // Read the command and print the prompt.
+    if(getcmd(buf, sizeof(buf)) < 0)
+      break;
+
+    while ((pid = wait_noblock(&status)) > 0)
+      fprintf(2, "[bg %d] exited with status %d\n", pid, status);
 
     if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
       // Chdir must be called by the parent, not the child.
