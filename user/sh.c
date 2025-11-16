@@ -124,8 +124,7 @@ runcmd(struct cmd *cmd)
 
   case BACK:
     bcmd = (struct backcmd*)cmd;
-    if(fork1() == 0)
-      runcmd(bcmd->cmd);
+    runcmd(bcmd->cmd);
     break;
   }
   exit(0);
@@ -158,6 +157,12 @@ main(void)
 
   // Read and run input commands.
   while(getcmd(buf, sizeof(buf)) >= 0){
+    // Check if there is any exited background job, then print it.
+    // int status;
+    int pid; 
+    // while ((pid = wait_noblock(&status)) > 0)
+    //   fprintf(2, "[bg %d] exited with status %d\n", pid, status);
+
     if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
       // Chdir must be called by the parent, not the child.
       buf[strlen(buf)-1] = 0;  // chop \n
@@ -165,8 +170,15 @@ main(void)
         fprintf(2, "cannot cd %s\n", buf+3);
       continue;
     }
-    if(fork1() == 0)
-      runcmd(parsecmd(buf));
+    pid = fork1();
+    struct cmd* command = parsecmd(buf);
+    if(pid == 0){
+      runcmd(command);
+    }
+    if(command->type == BACK){
+      fprintf(2, "[%d]\n", pid);
+      continue;
+    }
     wait(0);
   }
   exit(0);
