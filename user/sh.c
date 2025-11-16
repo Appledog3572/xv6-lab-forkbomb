@@ -3,6 +3,9 @@
 #include "kernel/types.h"
 #include "user/user.h"
 #include "kernel/fcntl.h"
+#include "kernel/param.h"
+
+int jobs[NPROC];
 
 // Parsed command representation
 #define EXEC  1
@@ -141,6 +144,30 @@ getcmd(char *buf, int nbuf)
   return 0;
 }
 
+void
+addjob(int pid)
+{
+  int *j;
+  for(j = jobs; j < &jobs[NPROC]; j++){
+    if(*j == 0){
+      *j = pid;
+      break;
+    }
+  }
+}
+
+void
+removejob(int pid)
+{
+  int *j;
+  for(j = jobs; j < &jobs[NPROC]; j++){
+    if(*j == pid){
+      *j = 0;
+      break;
+    }
+  }
+}
+
 int
 main(void)
 {
@@ -159,15 +186,19 @@ main(void)
   while(1){
     // Check if there is any exited background job, then print it.
     int status, pid;
-    while ((pid = wait_noblock(&status)) > 0)
+    while ((pid = wait_noblock(&status)) > 0){
+      removejob(pid);
       fprintf(2, "[bg %d] exited with status %d\n", pid, status);
+    }
 
     // Read the command and print the prompt.
     if(getcmd(buf, sizeof(buf)) < 0)
       break;
 
-    while ((pid = wait_noblock(&status)) > 0)
+    while ((pid = wait_noblock(&status)) > 0){
+      removejob(pid);
       fprintf(2, "[bg %d] exited with status %d\n", pid, status);
+    }
 
     if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
       // Chdir must be called by the parent, not the child.
@@ -176,12 +207,24 @@ main(void)
         fprintf(2, "cannot cd %s\n", buf+3);
       continue;
     }
+
+    if(buf[0] == 'j' && buf[1] == 'o' && buf[2] == 'b' && buf[3] == 's'){
+      buf[strlen(buf)-1] = 0;  // chop \n
+      int *j;
+      for(j = jobs; j < &jobs[NPROC]; j++){
+        if(*j > 0)
+          fprintf(2, "%d\n", *j);
+      }
+      continue;
+    }
+
     pid = fork1();
     struct cmd* command = parsecmd(buf);
     if(pid == 0){
       runcmd(command);
     }
     if(command->type == BACK){
+      addjob(pid);
       fprintf(2, "[%d]\n", pid);
       continue;
     }
