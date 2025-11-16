@@ -144,6 +144,28 @@ getcmd(char *buf, int nbuf)
   return 0;
 }
 
+int
+getcmdfromfile(char *buf, int nbuf, int fd)
+{
+  memset(buf, 0, nbuf);
+  int i = 0;
+  char c;
+  while(i < nbuf-1) {
+    int n = read(fd, &c, 1);
+    if(n <= 0) {
+      buf[i] = 0;
+      return -1; // EOF
+    }
+    buf[i++] = c;
+    if(c == '\n') {
+      buf[i] = 0;
+      return 0;
+    }
+  }
+  buf[i] = 0;
+  return 0;
+}
+
 void
 addjob(int pid)
 {
@@ -169,10 +191,11 @@ removejob(int pid)
 }
 
 int
-main(void)
+main(int argc, char* argv[])
 {
   static char buf[100];
   int fd;
+  int isscript = 0;
 
   // Ensure that three file descriptors are open.
   while((fd = open("console", O_RDWR)) >= 0){
@@ -182,6 +205,14 @@ main(void)
     }
   }
 
+  if(argc > 1){
+    if((fd = open(argv[1], O_RDONLY)) < 0){
+      fprintf(2, "sh: cannot open %s\n", argv[1]);
+      exit(1);
+    }
+    isscript = 1;
+  }
+  
   // Read and run input commands.
   while(1){
     // Check if there is any exited background job, then print it.
@@ -191,9 +222,17 @@ main(void)
       fprintf(2, "[bg %d] exited with status %d\n", pid, status);
     }
 
-    // Read the command and print the prompt.
-    if(getcmd(buf, sizeof(buf)) < 0)
-      break;
+    if(isscript){
+      // Read the command from the script file.
+      if(getcmdfromfile(buf, sizeof(buf), fd) < 0){
+        isscript = 0;
+      }
+    }
+    else{
+      // Read the command and print the prompt.
+      if(getcmd(buf, sizeof(buf)) < 0)
+        break;
+    }
 
     while ((pid = wait_noblock(&status)) > 0){
       removejob(pid);
