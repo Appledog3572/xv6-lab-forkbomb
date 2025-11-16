@@ -64,7 +64,6 @@ void
 runcmd(struct cmd *cmd)
 {
   int p[2];
-  struct backcmd *bcmd;
   struct execcmd *ecmd;
   struct listcmd *lcmd;
   struct pipecmd *pcmd;
@@ -126,11 +125,6 @@ runcmd(struct cmd *cmd)
     wait(0);
     wait(0);
     break;
-
-  case BACK:
-    bcmd = (struct backcmd*)cmd;
-    runcmd(bcmd->cmd);
-    break;
   }
   exit(0);
 }
@@ -138,12 +132,6 @@ runcmd(struct cmd *cmd)
 int
 getcmd(char *buf, int nbuf)
 {
-  int status, pid;
-  while ((pid = wait_noblock(&status)) > 0){
-    removejob(pid);
-    fprintf(2, "[bg %d] exited with status %d\n", pid, status);
-  } 
-  write(2, "$ ", 2);
   memset(buf, 0, nbuf);
   gets(buf, nbuf);
   if(buf[0] == 0) // EOF
@@ -225,6 +213,11 @@ main(int argc, char* argv[])
     // Check if there is any exited background job, then print it.
     int status, pid;
 
+    // BEFORE printing a new command prompt $
+    while ((pid = wait_noblock(&status)) > 0){
+      removejob(pid);
+      fprintf(2, "[bg %d] exited with status %d\n", pid, status);
+    } 
     if(isscript){
       // Read the command from the script file.
       if(getcmdfromfile(buf, sizeof(buf), fd) < 0){
@@ -232,15 +225,16 @@ main(int argc, char* argv[])
       }
     }
     else{
-      // Read the command and print the prompt.
-      int cmdreturn = getcmd(buf, sizeof(buf));
-      while ((pid = wait_noblock(&status)) > 0){
-        removejob(pid);
-        fprintf(2, "[bg %d] exited with status %d\n", pid, status);
-      } 
-      if(cmdreturn < 0)
+      // Print the prompt and read the command.
+      write(2, "$ ", 2);
+      if((getcmd(buf, sizeof(buf))) < 0)
         break;
     }
+    // AFTER inputting a command
+    while ((pid = wait_noblock(&status)) > 0){
+      removejob(pid);
+      fprintf(2, "[bg %d] exited with status %d\n", pid, status);
+    } 
 
     if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
       // Chdir must be called by the parent, not the child.
@@ -260,17 +254,36 @@ main(int argc, char* argv[])
       continue;
     }
 
-    pid = fork1();
     struct cmd* command = parsecmd(buf);
-    if(pid == 0){
-      runcmd(command);
-    }
+
     if(command->type == BACK){
+      struct backcmd *bcmd = (struct backcmd*)command;
+      pid = fork1();
+      if(pid == 0){
+        runcmd(bcmd->cmd);
+      }
       addjob(pid);
       fprintf(2, "[%d]\n", pid);
+      sleep(1);
       continue;
     }
-    wait(0);
+    else{
+      int fg_pid = fork1();
+      if(fg_pid == 0){
+        runcmd(command);
+      }
+
+      int reaped_pid;
+      while ((reaped_pid = wait(&status)) > 0) {
+        if (reaped_pid == fg_pid){
+          break;
+        } 
+        else{
+          removejob(reaped_pid);
+          fprintf(2, "[bg %d] exited with status %d\n", reaped_pid, status);
+        }
+      }
+    }
   }
   exit(0);
 }
