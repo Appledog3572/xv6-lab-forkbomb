@@ -16,6 +16,8 @@ int jobs[NPROC];
 
 #define MAXARGS 10
 
+void removejob(int pid);
+
 struct cmd {
   int type;
 };
@@ -136,6 +138,11 @@ runcmd(struct cmd *cmd)
 int
 getcmd(char *buf, int nbuf)
 {
+  int status, pid;
+  while ((pid = wait_noblock(&status)) > 0){
+    removejob(pid);
+    fprintf(2, "[bg %d] exited with status %d\n", pid, status);
+  } 
   write(2, "$ ", 2);
   memset(buf, 0, nbuf);
   gets(buf, nbuf);
@@ -205,7 +212,7 @@ main(int argc, char* argv[])
     }
   }
 
-  if(argc > 1){
+  if(argc > 1 && argv[0][0] == 's' && argv[0][1] == 'h'){
     if((fd = open(argv[1], O_RDONLY)) < 0){
       fprintf(2, "sh: cannot open %s\n", argv[1]);
       exit(1);
@@ -217,10 +224,6 @@ main(int argc, char* argv[])
   while(1){
     // Check if there is any exited background job, then print it.
     int status, pid;
-    while ((pid = wait_noblock(&status)) > 0){
-      removejob(pid);
-      fprintf(2, "[bg %d] exited with status %d\n", pid, status);
-    }
 
     if(isscript){
       // Read the command from the script file.
@@ -230,13 +233,13 @@ main(int argc, char* argv[])
     }
     else{
       // Read the command and print the prompt.
-      if(getcmd(buf, sizeof(buf)) < 0)
+      int cmdreturn = getcmd(buf, sizeof(buf));
+      while ((pid = wait_noblock(&status)) > 0){
+        removejob(pid);
+        fprintf(2, "[bg %d] exited with status %d\n", pid, status);
+      } 
+      if(cmdreturn < 0)
         break;
-    }
-
-    while ((pid = wait_noblock(&status)) > 0){
-      removejob(pid);
-      fprintf(2, "[bg %d] exited with status %d\n", pid, status);
     }
 
     if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
